@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>book-map-miniapp</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <style>
+    :root {
+      --bg: #f7f6f2;
+      --surface: #ffffff;
+      --surface-2: #f3f0ec;
+      --text: #28251d;
+      --muted: #716d66;
+      --primary: #01696f;
+      --primary-2: #0c4e54;
+      --border: #d8d4cd;
+      --accent-1: #ef6c00;
+      --accent-2: #f9a825;
+      --accent-3: #7cb342;
+      --accent-4: #2e7d32;
+      --empty: #d9d9d9;
+      --danger: #a13544;
+      --shadow: 0 8px 24px rgba(28, 24, 20, 0.08);
+      --radius: 18px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; font-family: Inter, sans-serif; background: var(--bg); color: var(--text); }
+    body { min-height: 100vh; }
+    .app { max-width: 1100px; margin: 0 auto; padding: 16px; }
+    .hero, .panel, .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+    .hero { padding: 20px; margin-bottom: 16px; }
+    .hero-top { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: clamp(1.6rem, 1.2rem + 1.8vw, 2.4rem); line-height: 1.05; }
+    .subtitle { margin-top: 10px; color: var(--muted); font-size: 0.98rem; max-width: 60ch; }
+    .pill { display: inline-flex; align-items: center; gap: 8px; border-radius: 999px; padding: 10px 14px; background: rgba(1,105,111,0.08); color: var(--primary); font-weight: 600; font-size: 0.92rem; }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
+    .stats { margin-bottom: 16px; }
+    .stat { grid-column: span 4; padding: 16px; }
+    .stat-label { color: var(--muted); font-size: 0.9rem; margin-bottom: 8px; }
+    .stat-value { font-size: 1.8rem; font-weight: 700; }
+    .panel { padding: 16px; }
+    .panel h2 { font-size: 1.05rem; margin-bottom: 12px; }
+    .map-panel { grid-column: span 8; }
+    .side-panel { grid-column: span 4; display: grid; gap: 16px; }
+    #map { width: 100%; height: 520px; border-radius: 14px; overflow: hidden; background: var(--surface-2); }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+    .toolbar input, .toolbar select { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: #fff; color: var(--text); font: inherit; }
+    .toolbar input { flex: 1 1 240px; }
+    .toolbar select { min-width: 150px; }
+    .hint, .empty, .error { color: var(--muted); font-size: 0.95rem; }
+    .error { color: var(--danger); }
+    .country-list, .book-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+    .country-item, .book-item { background: var(--surface-2); border-radius: 14px; padding: 12px; }
+    .country-row, .book-row { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+    .country-name, .book-title { font-weight: 600; }
+    .country-count, .book-score { color: var(--primary); font-weight: 700; white-space: nowrap; }
+    .book-meta { margin-top: 6px; color: var(--muted); font-size: 0.92rem; }
+    .book-comment { margin-top: 8px; font-size: 0.93rem; line-height: 1.45; }
+    .legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--muted); }
+    .swatch { width: 12px; height: 12px; border-radius: 999px; }
+    .footer-note { margin-top: 14px; color: var(--muted); font-size: 0.86rem; }
+    @media (max-width: 900px) {
+      .map-panel, .side-panel, .stat { grid-column: span 12; }
+      #map { height: 420px; }
+      .hero-top { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="hero">
+      <div class="hero-top">
+        <div>
+          <h1>Книжная карта</h1>
+          <p class="subtitle">Мини-приложение внутри Telegram показывает книги из твоего бота, подсвечивает страны авторов и даёт быстрый обзор по географии чтения.</p>
+        </div>
+        <div class="pill" id="userBadge">Загрузка профиля…</div>
+      </div>
+    </section>
+
+    <section class="grid stats">
+      <article class="stat">
+        <div class="stat-label">Всего книг</div>
+        <div class="stat-value" id="booksCount">0</div>
+      </article>
+      <article class="stat">
+        <div class="stat-label">Стран закрыто</div>
+        <div class="stat-value" id="countriesCount">0</div>
+      </article>
+      <article class="stat">
+        <div class="stat-label">Средняя оценка</div>
+        <div class="stat-value" id="avgScore">—</div>
+      </article>
+    </section>
+
+    <section class="grid">
+      <article class="panel map-panel">
+        <h2>Карта мира</h2>
+        <div class="toolbar">
+          <input id="searchInput" type="text" placeholder="Фильтр по названию, автору или стране" />
+          <select id="yearFilter">
+            <option value="">Все годы</option>
+          </select>
+        </div>
+        <div id="status" class="hint">Загружаю книги…</div>
+        <div id="map"></div>
+        <div class="legend">
+          <span class="legend-item"><span class="swatch" style="background:#d9d9d9"></span>0</span>
+          <span class="legend-item"><span class="swatch" style="background:#ef6c00"></span>1</span>
+          <span class="legend-item"><span class="swatch" style="background:#f9a825"></span>2</span>
+          <span class="legend-item"><span class="swatch" style="background:#7cb342"></span>3-4</span>
+          <span class="legend-item"><span class="swatch" style="background:#2e7d32"></span>5+</span>
+        </div>
+      </article>
+
+      <aside class="side-panel">
+        <section class="panel">
+          <h2>Страны</h2>
+          <ul id="countryList" class="country-list"></ul>
+        </section>
+        <section class="panel">
+          <h2>Книги</h2>
+          <ul id="bookList" class="book-list"></ul>
+          <div class="footer-note">Добавление и редактирование книг остаётся в боте — карта только показывает данные.</div>
+        </section>
+      </aside>
+    </section>
+  </main>
+
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script>
+    const API_BASE = window.location.origin;
+    const GEOJSON_URL = 'https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson';
+
+    const els = {
+      status: document.getElementById('status'),
+      booksCount: document.getElementById('booksCount'),
+      countriesCount: document.getElementById('countriesCount'),
+      avgScore: document.getElementById('avgScore'),
+      countryList: document.getElementById('countryList'),
+      bookList: document.getElementById('bookList'),
+      yearFilter: document.getElementById('yearFilter'),
+      searchInput: document.getElementById('searchInput'),
+      userBadge: document.getElementById('userBadge')
+    };
+
+    let map;
+    let geoJsonLayer;
+    let allBooks = [];
+    let filteredBooks = [];
+    let currentUser = null;
+
+    initTelegram();
+    initMap();
+    attachEvents();
+    loadData();
+
+    function initTelegram() {
+      const tg = window.Telegram?.WebApp;
+      if (tg) {
+        tg.ready();
+        tg.expand();
+        tg.setHeaderColor('#f7f6f2');
+        tg.setBackgroundColor('#f7f6f2');
+        currentUser = tg.initDataUnsafe?.user || null;
+      }
+
+      els.userBadge.textContent = currentUser
+        ? `@${currentUser.username || currentUser.first_name || 'user'}`
+        : 'Telegram user';
+    }
+
+    function attachEvents() {
+      els.yearFilter.addEventListener('change', applyFilters);
+      els.searchInput.addEventListener('input', applyFilters);
+    }
+
+    async function loadData() {
+      try {
+        const initData = window.Telegram?.WebApp?.initData || '';
+        const response = await fetch(`${API_BASE}/api/miniapp/books`, {
+          headers: {
+            'X-Telegram-Init-Data': initData
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const payload = await response.json();
+        allBooks = payload.books || [];
+        filteredBooks = [...allBooks];
+
+        fillYearOptions(allBooks);
+        applyFilters();
+        els.status.textContent = allBooks.length
+          ? 'Данные загружены.'
+          : 'Пока нет книг. Добавь первую книгу через бота.';
+      } catch (error) {
+        console.error(error);
+        els.status.className = 'error';
+        els.status.textContent = 'Не удалось загрузить данные. Проверь API_BASE и сервер Mini App.';
+      }
+    }
+
+    function fillYearOptions(books) {
+      const years = [...new Set(books.map((book) => book.year).filter(Boolean))].sort((a, b) => b - a);
+      for (const year of years) {
+        const option = document.createElement('option');
+        option.value = String(year);
+        option.textContent = String(year);
+        els.yearFilter.appendChild(option);
+      }
+    }
+
+    function applyFilters() {
+      const q = els.searchInput.value.trim().toLowerCase();
+      const year = els.yearFilter.value;
+
+      filteredBooks = allBooks.filter((book) => {
+        const textMatch = !q || [book.title, book.author, book.country_ru, book.comment || '']
+          .join(' ')
+          .toLowerCase()
+          .includes(q);
+        const yearMatch = !year || String(book.year) === year;
+        return textMatch && yearMatch;
+      });
+
+      renderStats(filteredBooks);
+      renderCountryList(filteredBooks);
+      renderBookList(filteredBooks);
+      updateMapColors(filteredBooks);
+    }
+
+    function renderStats(books) {
+      const countries = new Set(books.map((book) => book.country_code).filter(Boolean));
+      const scored = books.filter((book) => Number.isFinite(book.score));
+      const avg = scored.length
+        ? (scored.reduce((sum, book) => sum + Number(book.score), 0) / scored.length).toFixed(1)
+        : '—';
+
+      els.booksCount.textContent = books.length;
+      els.countriesCount.textContent = countries.size;
+      els.avgScore.textContent = avg;
+    }
+
+    function renderCountryList(books) {
+      els.countryList.innerHTML = '';
+      const counts = getCountryCounts(books);
+      const entries = Object.entries(counts)
+        .map(([code, value]) => ({ code, ...value }))
+        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ru'));
+
+      if (!entries.length) {
+        els.countryList.innerHTML = '<li class="empty">Пока нет данных по странам.</li>';
+        return;
+      }
+
+      for (const entry of entries) {
+        const li = document.createElement('li');
+        li.className = 'country-item';
+        li.innerHTML = `
+          <div class="country-row">
+            <span class="country-name">${escapeHtml(entry.name)}</span>
+            <span class="country-count">${entry.count}</span>
+          </div>
+        `;
+        els.countryList.appendChild(li);
+      }
+    }
+
+    function renderBookList(books) {
+      els.bookList.innerHTML = '';
+      if (!books.length) {
+        els.bookList.innerHTML = '<li class="empty">Ничего не найдено по текущему фильтру.</li>';
+        return;
+      }
+
+      for (const book of books.slice().sort((a, b) => (b.year - a.year) || (b.month - a.month))) {
+        const li = document.createElement('li');
+        li.className = 'book-item';
+        li.innerHTML = `
+          <div class="book-row">
+            <span class="book-title">${escapeHtml(book.title)}</span>
+            <span class="book-score">${book.score}/10</span>
+          </div>
+          <div class="book-meta">${escapeHtml(book.author)} · ${escapeHtml(book.country_ru)} · ${book.year}/${String(book.month).padStart(2, '0')}</div>
+          ${book.comment ? `<div class="book-comment">${escapeHtml(book.comment)}</div>` : ''}
+        `;
+        els.bookList.appendChild(li);
+      }
+    }
+
+    function getCountryCounts(books) {
+      const counts = {};
+      for (const book of books) {
+        if (!book.country_code) continue;
+        if (!counts[book.country_code]) {
+          counts[book.country_code] = { name: book.country_ru || book.country_code, count: 0 };
+        }
+        counts[book.country_code].count += 1;
+      }
+      return counts;
+    }
+
+    function getColorByCount(count) {
+      if (count >= 5) return '#2e7d32';
+      if (count >= 3) return '#7cb342';
+      if (count >= 2) return '#f9a825';
+      if (count >= 1) return '#ef6c00';
+      return '#d9d9d9';
+    }
+
+    function initMap() {
+      map = L.map('map', { zoomControl: true, worldCopyJump: true }).setView([20, 0], 2);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+
+      fetch(GEOJSON_URL)
+        .then((response) => response.json())
+        .then((geojsonData) => {
+          geoJsonLayer = L.geoJSON(geojsonData, {
+            style: (feature) => styleCountryFeature(feature, filteredBooks),
+            onEachFeature: onEachCountryFeature
+          }).addTo(map);
+        })
+        .catch((error) => {
+          console.error('Ошибка загрузки карты', error);
+        });
+    }
+
+    function styleCountryFeature(feature, books) {
+      const counts = getCountryCounts(books);
+      const countryCode = feature.properties.ISO_A2 || feature.properties['ISO3166-1-Alpha-2'];
+      const count = counts[countryCode]?.count || 0;
+      return {
+        fillColor: getColorByCount(count),
+        weight: 1,
+        opacity: 1,
+        color: '#ffffff',
+        dashArray: '2',
+        fillOpacity: 0.84
+      };
+    }
+
+    function onEachCountryFeature(feature, layer) {
+      layer.on({
+        mouseover: function (event) {
+          event.target.setStyle({ weight: 2, color: '#333', dashArray: '', fillOpacity: 0.95 });
+        },
+        mouseout: function (event) {
+          geoJsonLayer?.resetStyle(event.target);
+        },
+        click: function () {
+          const countryCode = feature.properties.ISO_A2 || feature.properties['ISO3166-1-Alpha-2'];
+          const books = filteredBooks.filter((book) => book.country_code === countryCode);
+          const countryName = feature.properties.ADMIN || feature.properties.name || feature.properties.NAME || countryCode;
+          layer.bindPopup(`${countryName}: ${books.length} книг`).openPopup();
+        }
+      });
+    }
+
+    function updateMapColors(books) {
+      if (!geoJsonLayer) return;
+      geoJsonLayer.setStyle((feature) => styleCountryFeature(feature, books));
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+  </script>
+</body>
+</html>
